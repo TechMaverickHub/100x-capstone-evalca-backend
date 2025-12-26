@@ -30,6 +30,9 @@ class ErrorMessage(str, Enum):
 
     LOGOUT_FAILED = "Logout failed."
 
+    MAXIMUM_QUESTION_FILES_ALLOWED = "Maximum 2 files are allowed."
+    MAXIMUM_ANSWER_FILES_ALLOWED = "Maximum 5 files are allowed."
+
 
 class ErrorKeys(str, Enum):
     NON_FIELD_ERROR = "detail"
