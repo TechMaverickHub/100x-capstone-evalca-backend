@@ -9,7 +9,8 @@ from fastapi import status
 from fastapi.middleware.cors import CORSMiddleware
 
 from global_constants import SuccessMessage, ErrorMessage, ErrorKeys
-from model import ClassifyTextRequest
+from model import ClassifyTextRequest, EvaluateQuestionAnswer
+from services.evaluate import generate_ca_icmai_evaluation_prompt
 from services.llm import detect_question_answer
 from services.ocr import extract_text_from_image
 from utils import response_schema
@@ -104,7 +105,6 @@ async def ocr_question(files: List[UploadFile] = File(...)):
 
 @app.post("/ocr-answer")
 async def ocr_answer(files: List[UploadFile] = File(...)):
-
     if len(files) > int(os.getenv("MAXIMUM_ANSWER_FILES")):
         return_data = {
             ErrorKeys.NON_FIELD_ERROR: ErrorMessage.MAXIMUM_ANSWER_FILES_ALLOWED.value
@@ -192,6 +192,56 @@ async def classify_text(payload: ClassifyTextRequest):
             None,
             status.HTTP_200_OK
         )
+
+    return response_schema(
+        SuccessMessage.RECORD_RETRIEVED.value,
+        response,
+        status.HTTP_200_OK
+    )
+
+
+@app.post("/evaluate")
+async def classify_text(payload: EvaluateQuestionAnswer):
+    question = payload.question.strip()
+    answer = payload.answer.strip()
+
+    MAX_QUESTION_WORDS = int(os.getenv("MAX_QUESTION_WORDS", 300))
+    MAX_ANSWER_WORDS = int(os.getenv("MAX_ANSWER_WORDS", 700))
+
+    question_word_count = len(question.split())
+    answer_word_count = len(answer.split())
+
+    if (
+            question_word_count > MAX_QUESTION_WORDS
+            or answer_word_count > MAX_ANSWER_WORDS
+    ):
+        return_data = {
+            ErrorKeys.NON_FIELD_ERROR: (
+                f"Question exceeds {MAX_QUESTION_WORDS} words or "
+                f"Answer exceeds {MAX_ANSWER_WORDS} words."
+            )
+        }
+
+        return response_schema(
+            ErrorMessage.BAD_REQUEST.value,
+            return_data,
+            status.HTTP_400_BAD_REQUEST
+        )
+
+    if not question or not answer:
+        return_data = {
+            ErrorKeys.NON_FIELD_ERROR: ErrorMessage.BAD_REQUEST.value
+        }
+
+        return response_schema(
+            ErrorMessage.BAD_REQUEST.value,
+            return_data,
+            status.HTTP_400_BAD_REQUEST
+        )
+
+
+    response = await asyncio.to_thread(generate_ca_icmai_evaluation_prompt, question, answer)
+    logger.info(f"LLM response: {response}")
 
     return response_schema(
         SuccessMessage.RECORD_RETRIEVED.value,
