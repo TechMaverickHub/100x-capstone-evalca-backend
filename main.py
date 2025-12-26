@@ -3,15 +3,29 @@ import logging
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi import status
+from fastapi.middleware.cors import CORSMiddleware
 
-from global_constants import SuccessMessage, ErrorMessage
+from global_constants import SuccessMessage
 from model import ClassifyTextRequest
 from services.llm import detect_question_answer
 from services.ocr import extract_text_from_image
 from utils import response_schema
 
 app = FastAPI(title="Eval CA Service")
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def read_root():
