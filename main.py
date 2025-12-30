@@ -1,24 +1,31 @@
-import asyncio
-import logging
-import os
-from typing import List
-
-from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi import status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from auth import model as auth_models
+from auth import routers as auth_routes
+from ocr import routers as ocr_routes
+from evaluation import routers as evaluation_routes
+from database.session import engine
 
-from global_constants import SuccessMessage, ErrorMessage, ErrorKeys
-from model import ClassifyTextRequest, EvaluateQuestionAnswer
-from services.evaluate import generate_ca_icmai_evaluation_prompt
-from services.llm import detect_question_answer
-from services.ocr import extract_text_from_image
-from utils import response_schema
+from core.exceptions import register_exception_handlers
 
-load_dotenv()
-app = FastAPI(title="Eval CA Service")
+try:
+    auth_models.Base.metadata.create_all(bind=engine)
+except Exception as e:
+    import traceback
+
+    print("Error during table creation:")
+    traceback.print_exc()
+
+    print("Error during table creation:")
+    traceback.print_exc()
+
+app = FastAPI(title="Eval CA Service",  version="0.1.0", debug=True)
+
 origins = [
-    os.getenv("FRONTEND_BASE_API"),
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 app.add_middleware(
@@ -28,223 +35,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+register_exception_handlers(app)
 
-logger = logging.getLogger(__name__)
-
+app.include_router(auth_routes.router, prefix="/auth", tags=["Auth"])
+app.include_router(ocr_routes.router, prefix="/ocr", tags=["OCR"])
+app.include_router(evaluation_routes.router, prefix="/evaluate", tags=["Evaluation"])
 
 @app.get("/")
-def read_root():
-    return {"Hello": "World"}
-
-
-@app.post("/ocr")
-async def ocr_image(file: UploadFile = File(...)):
-    text = await extract_text_from_image(file)
-
-    return response_schema(SuccessMessage.RECORD_RETRIEVED.value, text, status.HTTP_200_OK)
-
-
-@app.post("/ocr-question")
-async def ocr_question(files: List[UploadFile] = File(...)):
-    if len(files) > int(os.getenv("MAXIMUM_QUESTION_FILES")):
-        return_data = {
-            ErrorKeys.NON_FIELD_ERROR: ErrorMessage.MAXIMUM_QUESTION_FILES_ALLOWED.value
-        }
-
-        return response_schema(
-            ErrorMessage.BAD_REQUEST.value,
-            return_data,
-            status.HTTP_400_BAD_REQUEST
-        )
-
-    individual_results = []
-    combined_text_parts = []
-    confidence_scores = []
-
-    for file in files:
-        extracted_text = await extract_text_from_image(file)
-
-        text = extracted_text.get("text", "")
-        confidence = extracted_text.get("confidence")
-
-        individual_results.append({
-            "filename": file.filename,
-            "text": text,
-            "confidence": confidence
-        })
-
-        if text:
-            combined_text_parts.append(text)
-
-        if confidence is not None:
-            confidence_scores.append(float(confidence))
-
-    # Combine all text
-    combined_text = "\n\n".join(combined_text_parts)
-
-    # Compute average confidence
-    average_confidence = (
-        round(sum(confidence_scores) / len(confidence_scores), 2)
-        if confidence_scores
-        else 0.0
-    )
-
-    final_result = {
-        "individual_results": individual_results,
-        "combined_text": combined_text,
-        "average_confidence": average_confidence,
-        "total_files": len(files)
-    }
-
-    return response_schema(
-        SuccessMessage.RECORD_RETRIEVED.value,
-        final_result,
-        status.HTTP_200_OK
-    )
-
-
-@app.post("/ocr-answer")
-async def ocr_answer(files: List[UploadFile] = File(...)):
-    if len(files) > int(os.getenv("MAXIMUM_ANSWER_FILES")):
-        return_data = {
-            ErrorKeys.NON_FIELD_ERROR: ErrorMessage.MAXIMUM_ANSWER_FILES_ALLOWED.value
-        }
-
-        return response_schema(
-            ErrorMessage.BAD_REQUEST.value,
-            return_data,
-            status.HTTP_400_BAD_REQUEST
-        )
-
-    individual_results = []
-    combined_text_parts = []
-    confidence_scores = []
-
-    for file in files:
-        extracted_text = await extract_text_from_image(file)
-
-        text = extracted_text.get("text", "")
-        confidence = extracted_text.get("confidence")
-
-        individual_results.append({
-            "filename": file.filename,
-            "text": text,
-            "confidence": confidence
-        })
-
-        if text:
-            combined_text_parts.append(text)
-
-        if confidence is not None:
-            confidence_scores.append(float(confidence))
-
-    # Combine all text
-    combined_text = "\n\n".join(combined_text_parts)
-
-    # Compute average confidence
-    average_confidence = (
-        round(sum(confidence_scores) / len(confidence_scores), 2)
-        if confidence_scores
-        else 0.0
-    )
-
-    final_result = {
-        "individual_results": individual_results,
-        "combined_text": combined_text,
-        "average_confidence": average_confidence,
-        "total_files": len(files)
-    }
-
-    return response_schema(
-        SuccessMessage.RECORD_RETRIEVED.value,
-        final_result,
-        status.HTTP_200_OK
-    )
-
-
-@app.post("/classify-text")
-async def classify_text(payload: ClassifyTextRequest):
-    text = payload.text.strip()
-
-    if not text:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Text cannot be empty"
-        )
-
-    logger.info("Received text for classification")
-
-    try:
-        # Run blocking LLM call in threadpool
-        response = await asyncio.to_thread(detect_question_answer, text)
-        logger.info(f"LLM response: {response}")
-
-    except Exception as e:
-        logger.exception("LLM processing failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="LLM processing failed"
-        )
-
-    if not response.get("question") or not response.get("answer"):
-        return response_schema(
-            response,
-            None,
-            status.HTTP_200_OK
-        )
-
-    return response_schema(
-        SuccessMessage.RECORD_RETRIEVED.value,
-        response,
-        status.HTTP_200_OK
-    )
-
-
-@app.post("/evaluate")
-async def classify_text(payload: EvaluateQuestionAnswer):
-    question = payload.question.strip()
-    answer = payload.answer.strip()
-
-    MAX_QUESTION_WORDS = int(os.getenv("MAX_QUESTION_WORDS", 300))
-    MAX_ANSWER_WORDS = int(os.getenv("MAX_ANSWER_WORDS", 700))
-
-    question_word_count = len(question.split())
-    answer_word_count = len(answer.split())
-
-    if (
-            question_word_count > MAX_QUESTION_WORDS
-            or answer_word_count > MAX_ANSWER_WORDS
-    ):
-        return_data = {
-            ErrorKeys.NON_FIELD_ERROR: (
-                f"Question exceeds {MAX_QUESTION_WORDS} words or "
-                f"Answer exceeds {MAX_ANSWER_WORDS} words."
-            )
-        }
-
-        return response_schema(
-            ErrorMessage.BAD_REQUEST.value,
-            return_data,
-            status.HTTP_400_BAD_REQUEST
-        )
-
-    if not question or not answer:
-        return_data = {
-            ErrorKeys.NON_FIELD_ERROR: ErrorMessage.BAD_REQUEST.value
-        }
-
-        return response_schema(
-            ErrorMessage.BAD_REQUEST.value,
-            return_data,
-            status.HTTP_400_BAD_REQUEST
-        )
-
-
-    response = await asyncio.to_thread(generate_ca_icmai_evaluation_prompt, question, answer)
-    logger.info(f"LLM response: {response}")
-
-    return response_schema(
-        SuccessMessage.RECORD_RETRIEVED.value,
-        response,
-        status.HTTP_200_OK
-    )
+def health():
+    return {"status": "ok"}
