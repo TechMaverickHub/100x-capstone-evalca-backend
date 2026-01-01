@@ -2,9 +2,11 @@ import os
 from typing import List
 
 from dotenv import load_dotenv
-from fastapi import UploadFile, File, APIRouter, status
+from fastapi import UploadFile, File, APIRouter, status, Depends
 
-from core.global_constants import ErrorKeys, ErrorMessage, SuccessMessage
+from auth.auth_util import require_role
+from auth.model import User
+from core.global_constants import ErrorKeys, ErrorMessage, SuccessMessage, GlobalConstants
 from ocr.ocr_utils import extract_text_from_image
 from core.utils import response_schema
 
@@ -12,7 +14,7 @@ load_dotenv()
 router = APIRouter()
 
 @router.post("/ocr-question")
-async def ocr_question(files: List[UploadFile] = File(...)):
+async def ocr_question(files: List[UploadFile] = File(...), current_user: User = Depends(require_role(GlobalConstants.TEACHER_ROLE_ID))):
     if len(files) > int(os.getenv("MAXIMUM_QUESTION_FILES")):
         return_data = {
             ErrorKeys.NON_FIELD_ERROR: ErrorMessage.MAXIMUM_QUESTION_FILES_ALLOWED.value
@@ -71,7 +73,7 @@ async def ocr_question(files: List[UploadFile] = File(...)):
 
 
 @router.post("/ocr-answer")
-async def ocr_answer(files: List[UploadFile] = File(...)):
+async def ocr_answer(files: List[UploadFile] = File(...), current_user: User = Depends(require_role(GlobalConstants.TEACHER_ROLE_ID))):
     if len(files) > int(os.getenv("MAXIMUM_ANSWER_FILES")):
         return_data = {
             ErrorKeys.NON_FIELD_ERROR: ErrorMessage.MAXIMUM_ANSWER_FILES_ALLOWED.value

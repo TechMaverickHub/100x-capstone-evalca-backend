@@ -29,6 +29,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     first_name: str
     last_name: str
+    role_id: int
 
     model_config = {
         "from_attributes": True
