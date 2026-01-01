@@ -3,8 +3,10 @@ import logging
 
 import os
 from dotenv import load_dotenv
-from fastapi import APIRouter, status
+from fastapi import APIRouter, status, Depends
 
+from auth.auth_util import get_current_user
+from auth.model import User
 from evaluation.schema import EvaluateQuestionAnswer
 from core.global_constants import ErrorMessage, ErrorKeys, SuccessMessage
 from services.evaluate import generate_ca_icmai_evaluation_prompt
@@ -18,7 +20,7 @@ router = APIRouter()
 
 
 @router.post("/evaluate")
-async def classify_text(payload: EvaluateQuestionAnswer):
+async def classify_text(payload: EvaluateQuestionAnswer, current_user: User = Depends(get_current_user)):
     question = payload.question.strip()
     answer = payload.answer.strip()
 

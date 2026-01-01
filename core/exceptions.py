@@ -2,8 +2,9 @@ from typing import Dict, List
 
 from fastapi import Request, HTTPException, FastAPI, status
 from fastapi.exceptions import RequestValidationError
+from starlette.responses import JSONResponse
 
-from core.global_constants import ErrorKeys
+from core.global_constants import ErrorKeys, ErrorMessage
 from core.utils import response_schema
 
 
@@ -21,8 +22,8 @@ def register_exception_handlers(app: FastAPI):
             errors.setdefault(field, []).append(msg)
 
         return response_schema(
-            schema=errors,
-            message="Validation failed.",
+            data=errors,
+            message=ErrorMessage.VALIDATION_FAILED.value,
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         )
 
@@ -33,7 +34,6 @@ def register_exception_handlers(app: FastAPI):
         Expects you to raise with detail={"detail": ["..."]}.
         """
 
-
         if isinstance(exc.detail, dict):
             # Already a dict → use as-is
             schema = exc.detail
@@ -41,8 +41,13 @@ def register_exception_handlers(app: FastAPI):
             # If a string, wrap into non-field error
             schema = {ErrorKeys.NON_FIELD_ERROR.value: [exc.detail]}
 
-        return response_schema(
-            schema=schema,
-            message="Something went wrong. Please try again later.",
+        payload = response_schema(
+            message=ErrorMessage.BAD_REQUEST.value,
+            data=schema,
+            status_code=exc.status_code
+        )
+
+        return JSONResponse(
             status_code=exc.status_code,
+            content=payload
         )
