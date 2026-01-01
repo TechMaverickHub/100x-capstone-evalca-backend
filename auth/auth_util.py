@@ -3,8 +3,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from auth.model import User
-from core.global_constants import ErrorMessage
+from core.global_constants import ErrorMessage, ErrorKeys
 from core.jwt_utils import verify_access_token
+from core.utils import response_schema
 from database.session import get_db
 
 # Swagger will now show simple "Authorize" for Bearer token
@@ -31,3 +32,15 @@ def get_token_from_header(request: Request):
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail=ErrorMessage.AUTHORIZATION_HEADER_MISSING_OR_INVALID.value)
     return auth_header.split("Bearer ")[1]
+
+
+def require_role(role_id: int):
+    def role_checker(current_user: User = Depends(get_current_user)):
+        if current_user.role_id != role_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=ErrorMessage.NOT_AUTHORIZED.value
+            )
+        return current_user
+
+    return role_checker

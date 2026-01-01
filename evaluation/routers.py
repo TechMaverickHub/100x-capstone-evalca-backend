@@ -5,10 +5,10 @@ import os
 from dotenv import load_dotenv
 from fastapi import APIRouter, status, Depends
 
-from auth.auth_util import get_current_user
+from auth.auth_util import get_current_user, require_role
 from auth.model import User
 from evaluation.schema import EvaluateQuestionAnswer
-from core.global_constants import ErrorMessage, ErrorKeys, SuccessMessage
+from core.global_constants import ErrorMessage, ErrorKeys, SuccessMessage, GlobalConstants
 from services.evaluate import generate_ca_icmai_evaluation_prompt
 from core.utils import response_schema
 
@@ -20,7 +20,7 @@ router = APIRouter()
 
 
 @router.post("/evaluate")
-async def classify_text(payload: EvaluateQuestionAnswer, current_user: User = Depends(get_current_user)):
+async def classify_text(payload: EvaluateQuestionAnswer, current_user: User = Depends(require_role(GlobalConstants.TEACHER_ROLE_ID))):
     question = payload.question.strip()
     answer = payload.answer.strip()
 

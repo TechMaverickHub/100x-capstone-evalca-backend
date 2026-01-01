@@ -1,7 +1,19 @@
-from sqlalchemy import Column, Integer, DateTime, Boolean, func, String, Text
+from sqlalchemy import Column, Integer, DateTime, Boolean, func, String, Text, ForeignKey
+from sqlalchemy.orm import relationship
 
 from database.session import Base
 
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)  # e.g. admin, student, evaluator
+    description = Column(String, nullable=True)
+
+    created = Column(DateTime(timezone=True), server_default=func.now())
+    updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_active = Column(Boolean, default=True)
 
 class User(Base):
 
@@ -16,10 +28,16 @@ class User(Base):
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
 
+    # Role Mapping
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
+
     # Additional Fields
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created = Column(DateTime(timezone=True), server_default=func.now())
+    updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     is_active = Column(Boolean, default=True)
+
+    # Relationship
+    role = relationship("Role", backref="users")
 
 
 class BlacklistedToken(Base):
@@ -28,4 +46,6 @@ class BlacklistedToken(Base):
     id = Column(Integer, primary_key=True, index=True)
     token = Column(Text, nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created = Column(DateTime(timezone=True), server_default=func.now())
+    updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_active = Column(Boolean, default=True)

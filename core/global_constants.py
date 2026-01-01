@@ -19,6 +19,7 @@ class ErrorMessage(str, Enum):
     BAD_REQUEST = "Bad request."
     NOT_FOUND = "Record not found."
     SOMETHING_WENT_WRONG = "Something went wrong. Please try again later."
+    NOT_AUTHORIZED = "You are not authorized to perform this action."
 
     SERVER_MISCONFIGURED = "Server configuration error: missing GROQ_API_KEY."
     ANSWER_GENERATION_FAILED = "We’re having trouble generating an answer. Please try again."
@@ -38,3 +39,8 @@ class ErrorMessage(str, Enum):
 
 class ErrorKeys(str, Enum):
     NON_FIELD_ERROR = "detail"
+
+
+class GlobalConstants:
+    SUPERADMIN_ROLE_ID = 1
+    TEACHER_ROLE_ID = 2
