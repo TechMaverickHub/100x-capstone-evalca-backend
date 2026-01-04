@@ -210,3 +210,5 @@ __marimo__/
 # .iml, .xml
 *.iml
 *.xml
+
+google-vision-credentials.json
