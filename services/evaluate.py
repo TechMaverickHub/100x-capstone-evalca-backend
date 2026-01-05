@@ -288,7 +288,6 @@ def generate_examiner_feedback(
 ) -> dict:
     """ Stage 4 — Examiner Feedback Generation """
 
-    print("Before prompt")
     prompt = f"""
 Prepare an ICMAI-style examiner evaluation summary.
 
@@ -311,9 +310,6 @@ Output Format (STRICT JSON):
 }}
 """
 
-    print("after prompt")
-
-    print(prompt)
 
     response = client.chat.completions.create(
         model="openai/gpt-oss-20b",
@@ -334,23 +330,17 @@ def evaluate_ca_answer_experimental(
 
     """ Full Evaluation Pipeline for CA Answers """
 
-    print("decomposing answer")
     extracted = decompose_answer(question, answer)
 
-    print("text extracted")
     mapped = map_to_marking_scheme(extracted, marking_scheme)
 
-    print("mapping done")
     scoring = calculate_marks(mapped, marking_scheme)
 
-    print("marks calculated")
     feedback = generate_examiner_feedback(
         question,
         scoring,
         scoring["breakdown"]
     )
-
-    print("feedback generated")
 
     verdict = derive_verdict(
         scoring["marks_awarded"],
