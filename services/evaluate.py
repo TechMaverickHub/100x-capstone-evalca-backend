@@ -22,6 +22,7 @@ STRICT RULES:
 - Respond in STRICT JSON only.
 """
 
+
 def safe_json_loads(text: str) -> dict:
     if not text or not text.strip():
         raise ValueError("LLM returned empty response")
@@ -36,6 +37,7 @@ def safe_json_loads(text: str) -> dict:
         raise ValueError(f"No JSON found in LLM output:\n{text}")
 
     return json.loads(match.group(1))
+
 
 def generate_ca_icmai_evaluation_prompt(question: str, answer: str) -> str:
     """
@@ -120,7 +122,9 @@ Assess the answer on:
             "examiner_remarks": ""
         }
 
+
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
 
 def decompose_answer(question: str, answer: str) -> dict:
     """ Stage 1 — Answer Decomposition
@@ -169,26 +173,26 @@ Output Format (STRICT JSON):
     return json.loads(response.choices[0].message.content)
 
 
-
-def map_to_marking_scheme(extracted_points: dict, marking_scheme: dict) -> dict:
+def map_to_marking_scheme(extracted_points: dict, marking_scheme) -> dict:
     prompt = f"""
-You are an ICMAI examiner performing ONLY scheme mapping.
+You are an ICMAI examiner performing ONLY marking-scheme mapping.
 
 TASK:
-For each student point, identify whether it matches a marking-scheme point.
+For each student point, determine:
+1. Whether it matches a marking-scheme point.
+2. If it does NOT match, which scheme point it is closest to (if any).
 
-RULES (VERY IMPORTANT):
-- Match ONLY what is explicitly written.
-- Do NOT infer intent.
+STRICT RULES:
 - Do NOT award marks.
-- Do NOT invent scheme points.
-- If nothing matches, return "no_match".
-- Return STRICT JSON ONLY.
-- Do NOT include explanations.
+- Do NOT infer intent.
+- Match ONLY what is explicitly written.
+- If the point is irrelevant, use closest_point_code = null.
+- If nothing matches, set point_code = "no_match".
+- Return STRICT JSON only.
+- No explanations.
 
 MARKING SCHEME (AUTHORITATIVE):
 {json.dumps([p.dict() for p in marking_scheme.scheme], indent=2)}
-
 
 STUDENT EXTRACTED POINTS:
 {json.dumps(extracted_points["identified_points"], indent=2)}
@@ -199,6 +203,7 @@ OUTPUT FORMAT (STRICT JSON ONLY):
     {{
       "student_point": "",
       "point_code": "",
+      "closest_point_code": null,
       "match_type": "exact | partial | no_match"
     }}
   ]
@@ -218,10 +223,6 @@ OUTPUT FORMAT (STRICT JSON ONLY):
 
 
 def calculate_marks(mapping_result: dict, marking_scheme) -> dict:
-    """
-    Stage 3 — Deterministic marks calculation
-    """
-
     scheme_map = {
         p.point_code: p.max_marks
         for p in marking_scheme.scheme
@@ -231,11 +232,11 @@ def calculate_marks(mapping_result: dict, marking_scheme) -> dict:
     breakdown = []
     seen_points = set()
 
+    # 1️⃣ Process matched student points
     for item in mapping_result["mapping"]:
         point_code = item["point_code"]
         match_type = item["match_type"]
 
-        # prevent double counting
         if point_code in seen_points:
             continue
         seen_points.add(point_code)
@@ -252,11 +253,23 @@ def calculate_marks(mapping_result: dict, marking_scheme) -> dict:
         awarded += marks
 
         breakdown.append({
-            "student_point": item["student_point"],
             "scheme_point": point_code,
+            "student_point": item["student_point"],
             "marks_awarded": marks,
-            "max_marks": max_marks
+            "max_marks": max_marks,
+            "status": "attempted" if marks > 0 else "attempted_but_not_awarded"
         })
+
+    # 2️⃣ Add UNATTEMPTED scheme points
+    for scheme_point, max_marks in scheme_map.items():
+        if scheme_point not in seen_points:
+            breakdown.append({
+                "scheme_point": scheme_point,
+                "student_point": None,
+                "marks_awarded": 0,
+                "max_marks": max_marks,
+                "status": "not_attempted"
+            })
 
     awarded = min(awarded, marking_scheme.total_marks)
 
@@ -265,6 +278,7 @@ def calculate_marks(mapping_result: dict, marking_scheme) -> dict:
         "marks_awarded": round(awarded, 2),
         "breakdown": breakdown
     }
+
 
 def derive_verdict(marks: float, total: float) -> str:
     """ Derive verdict based on marks ratio """
@@ -282,9 +296,9 @@ def derive_verdict(marks: float, total: float) -> str:
 
 
 def generate_examiner_feedback(
-    question: str,
-    score_summary: dict,
-    breakdown: list
+        question: str,
+        score_summary: dict,
+        breakdown: list
 ) -> dict:
     """ Stage 4 — Examiner Feedback Generation """
 
@@ -310,7 +324,6 @@ Output Format (STRICT JSON):
 }}
 """
 
-
     response = client.chat.completions.create(
         model="openai/gpt-oss-20b",
         messages=[
@@ -322,12 +335,12 @@ Output Format (STRICT JSON):
 
     return safe_json_loads(response.choices[0].message.content)
 
+
 def evaluate_ca_answer_experimental(
         question: str,
         answer: str,
         marking_scheme
 ) -> dict:
-
     """ Full Evaluation Pipeline for CA Answers """
 
     extracted = decompose_answer(question, answer)
@@ -354,3 +367,62 @@ def evaluate_ca_answer_experimental(
         **feedback,
         "marking_breakdown": scoring["breakdown"]
     }
+
+
+def generate_icmai_marking_scheme(question: str, total_marks: int):
+    prompt = f"""
+You are a senior ICMAI-certified examiner preparing an OFFICIAL marking scheme
+for a Chartered Accountancy (CA) descriptive examination question.
+
+Your task is to generate an ICMAI-SAFE marking scheme.
+
+STRICT ICMAI RULES (VERY IMPORTANT):
+- Assume students may write answers in imperfect language.
+- Do NOT include points that are OPTIONAL, ADVANCED, or BEYOND the question.
+- Do NOT include comparison unless explicitly asked.
+- Do NOT include numerical formulas unless they are CORE to the concept.
+- Prefer high-level examinable ideas used in official ICMAI/ICAI solutions.
+- Each point must be:
+  - Conceptually essential
+  - Independently assessable
+  - Commonly rewarded in ICMAI exams
+- Avoid over-fragmentation (too many small points).
+- Allow partial understanding to earn marks.
+- Ensure no point unfairly causes zero scoring.
+
+MARK DISTRIBUTION RULES:
+- Total marks = {total_marks}
+- Use 4–6 examiner points ONLY (recommended for 8–10 mark questions)
+- Each point should carry 1–3 marks
+- Sum of all max_marks MUST equal {total_marks}
+
+POINT CODING RULES:
+- Use short, examiner-style codes (e.g., MC_DEF, MC_VAR, MC_FIXED)
+- Codes must reflect the CONCEPT, not numbering
+
+OUTPUT FORMAT (STRICT JSON ONLY):
+{{
+  "total_marks": {total_marks},
+  "scheme": [
+    {{
+      "point_code": "CODE",
+      "description": "What the examiner explicitly looks for",
+      "max_marks": integer
+    }}
+  ]
+}}
+
+QUESTION (AUTHORITATIVE):
+{question}
+"""
+
+    response = client.chat.completions.create(
+        model="openai/gpt-oss-20b",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0
+    )
+
+    return safe_json_loads(response.choices[0].message.content)

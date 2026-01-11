@@ -7,9 +7,10 @@ from fastapi import APIRouter, status, Depends
 
 from auth.auth_util import get_current_user, require_role
 from auth.model import User
-from evaluation.schema import EvaluateQuestionAnswer, EvaluateQuestionAnswerExperimental
+from evaluation.schema import EvaluateQuestionAnswer, EvaluateQuestionAnswerExperimental, MarkingSchemePayload
 from core.global_constants import ErrorMessage, ErrorKeys, SuccessMessage, GlobalConstants
-from services.evaluate import generate_ca_icmai_evaluation_prompt, evaluate_ca_answer_experimental
+from services.evaluate import generate_ca_icmai_evaluation_prompt, evaluate_ca_answer_experimental, \
+    generate_icmai_marking_scheme
 from core.utils import response_schema
 
 load_dotenv()
@@ -72,7 +73,6 @@ async def evaluate_answer_experimental(payload: EvaluateQuestionAnswerExperiment
     question = payload.question.strip()
     answer = payload.answer.strip()
     marking_scheme = payload.marking_scheme
-    total_marks = marking_scheme.total_marks
 
 
     MAX_QUESTION_WORDS = int(os.getenv("MAX_QUESTION_WORDS", 300))
@@ -110,6 +110,32 @@ async def evaluate_answer_experimental(payload: EvaluateQuestionAnswerExperiment
         )
 
     response = await asyncio.to_thread(evaluate_ca_answer_experimental, question, answer, marking_scheme)
+    logger.info(f"LLM response: {response}")
+
+    return response_schema(
+        SuccessMessage.RECORD_RETRIEVED.value,
+        response,
+        status.HTTP_200_OK
+    )
+
+@router.post("/generate-marking-scheme-experimental")
+async def generate_marking_scheme_experimental(payload: MarkingSchemePayload, current_user: User = Depends(require_role(GlobalConstants.TEACHER_ROLE_ID))):
+    question = payload.question.strip()
+    total_marks = payload.total_marks
+
+    print("hello")
+    if not question:
+        return_data = {
+            ErrorKeys.NON_FIELD_ERROR: ErrorMessage.BAD_REQUEST.value
+        }
+
+        return response_schema(
+            ErrorMessage.BAD_REQUEST.value,
+            return_data,
+            status.HTTP_400_BAD_REQUEST
+        )
+
+    response = await asyncio.to_thread(generate_icmai_marking_scheme, question, total_marks)
     logger.info(f"LLM response: {response}")
 
     return response_schema(

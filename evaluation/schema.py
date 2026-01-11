@@ -23,3 +23,7 @@ class EvaluateQuestionAnswerExperimental(BaseModel):
     question: str
     answer: str
     marking_scheme: MarkingScheme
+
+class MarkingSchemePayload(BaseModel):
+    question: str
+    total_marks: int
